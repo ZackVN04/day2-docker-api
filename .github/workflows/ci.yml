@@ -1,33 +1,65 @@
-name: Express API Continuous Integration
+name: Express API CI-CD Pipeline
 
 on:
   push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+    branches: [ main ] # Chỉ deploy tự động khi push lên nhánh main
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: asia-southeast1
+  REPOSITORY: my-docker-repo
+  IMAGE_NAME: day3-api
+  SERVICE_NAME: my-first-cloud-run
 
 jobs:
-  test-and-build:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-    # Bước 1: Tải code về máy runner
+    # 1. Tải code từ GitHub về Runner
     - name: Checkout Code
       uses: actions/checkout@v7
 
-    # Bước 2: Cài đặt Node.js và bật cơ chế cache npm tự động
-      # (Giúp tăng tốc các lần chạy tiếp theo)
+    # 2. Cài đặt Node.js
     - name: Setup Node.js
       uses: actions/setup-node@v6
       with:
         node-version: 20
         cache: 'npm'
 
-    # Bước 3: Cài đặt thư viện sạch (sử dụng npm ci đọc từ package.json)
     - name: Install Dependencies
       run: npm ci
 
-    # Bước 4: Kiểm tra chạy thử build docker xem Dockerfile viết có lỗi gì không
-      # (Chỉ build thử để kiểm tra cú pháp, không push lên Registry)
-    - name: Test Build Docker Image
-      run: docker build -t test-api:latest .
+    # 3. Đăng nhập vào GCP (Sử dụng Service Account Key đã lưu ở Secrets)
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+    # 4. Thiết lập công cụ gcloud CLI trên máy ảo Runner
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+
+    # 5. Đăng nhập Docker vào Artifact Registry của Google
+    - name: Configure Docker for Artifact Registry
+      run: gcloud auth configure-docker asia-southeast1-docker.pkg.dev --quiet
+
+    # 6. Build Docker Image và Tag
+    - name: Build and Tag Docker Image
+      run: |
+        docker build -t asia-southeast1-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }} .
+
+    # 7. Push Docker Image lên Artifact Registry
+      # Sử dụng tag là mã hash commit ${{ github.sha }} để định danh phiên bản duy nhất
+    - name: Push Image to Artifact Registry
+      run: |
+        docker push asia-southeast1-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }}
+
+    # 8. Deploy lên Cloud Run
+    - name: Deploy to Cloud Run
+      run: |
+        gcloud run deploy $SERVICE_NAME \
+          --image=asia-southeast1-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$IMAGE_NAME:${{ github.sha }} \
+          --platform=managed \
+          --region=$REGION \
+          --allow-unauthenticated
