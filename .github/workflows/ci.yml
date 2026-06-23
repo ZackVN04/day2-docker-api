@@ -13,12 +13,12 @@ jobs:
     steps:
     # Bước 1: Tải code về máy runner
     - name: Checkout Code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     # Bước 2: Cài đặt Node.js và bật cơ chế cache npm tự động
       # (Giúp tăng tốc các lần chạy tiếp theo)
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v6
       with:
         node-version: 20
         cache: 'npm'
